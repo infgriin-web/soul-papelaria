@@ -8,17 +8,21 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "soul_papelaria.db")
-STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "soul_papelaria.db")
 
-# Default admin credentials
+# Detect static files whether in static/ or root
+if os.path.exists(os.path.join(BASE_DIR, "static", "index.html")):
+    STATIC_DIR = os.path.join(BASE_DIR, "static")
+else:
+    STATIC_DIR = BASE_DIR
+
 ADMIN_USER = "admin"
 ADMIN_PASS = "soul123"
 ADMIN_TOKEN = "soul-papelaria-secure-session-token-2024"
 
-app = FastAPI(title="SOUL Papelaria Personalizada API")
+app = FastAPI(title="SOUL PAPELARIA PERSONALIZADA API")
 
-# Allow CORS so it can be accessed from any client/domain
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -36,7 +40,6 @@ def init_db():
     conn = get_db()
     cursor = conn.cursor()
     
-    # Store settings
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
@@ -44,7 +47,6 @@ def init_db():
         )
     """)
     
-    # Categories table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS categories (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -55,7 +57,6 @@ def init_db():
         )
     """)
     
-    # Products table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS products (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -70,7 +71,6 @@ def init_db():
         )
     """)
     
-    # Seed default settings
     default_settings = {
         "store_name": "SOUL PAPELARIA PERSONALIZADA",
         "tagline": "Encanto, afeto e sofisticação em papelaria fina",
@@ -83,7 +83,6 @@ def init_db():
     for k, v in default_settings.items():
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (k, v))
         
-    # Seed default categories
     cursor.execute("SELECT count(*) as cnt FROM categories")
     if cursor.fetchone()["cnt"] == 0:
         cursor.execute("INSERT INTO categories (name, slug, icon, theme) VALUES (?, ?, ?, ?)", 
@@ -95,7 +94,6 @@ def init_db():
         cursor.execute("INSERT INTO categories (name, slug, icon, theme) VALUES (?, ?, ?, ?)", 
                        ("Lembrancinhas & Mimos", "lembrancinhas", "🎀", "papelaria"))
 
-    # Seed initial products
     cursor.execute("SELECT count(*) as cnt FROM products")
     if cursor.fetchone()["cnt"] == 0:
         initial_products = [
@@ -157,7 +155,6 @@ def init_db():
 
 init_db()
 
-# Models
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -186,7 +183,6 @@ def verify_token(authorization: Optional[str] = Header(None)):
         raise HTTPException(status_code=401, detail="Não autorizado")
     return True
 
-# API Routes
 @app.post("/api/login")
 def login(creds: LoginRequest):
     if creds.username.strip() == ADMIN_USER and creds.password.strip() == ADMIN_PASS:
@@ -289,19 +285,27 @@ def delete_product(prod_id: int, authorized: bool = Depends(verify_token)):
     conn.close()
     return {"success": True}
 
-# Static routes
-if os.path.exists(STATIC_DIR):
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+# Static file mount handling both structures
+static_target = os.path.join(BASE_DIR, "static") if os.path.exists(os.path.join(BASE_DIR, "static")) else BASE_DIR
+app.mount("/static", StaticFiles(directory=static_target), name="static")
+
+def find_file(filename):
+    p1 = os.path.join(BASE_DIR, "static", filename)
+    if os.path.exists(p1):
+        return p1
+    p2 = os.path.join(BASE_DIR, filename)
+    if os.path.exists(p2):
+        return p2
+    return p1
 
 @app.get("/")
 def serve_index():
-    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+    return FileResponse(find_file("index.html"))
 
 @app.get("/admin")
 def serve_admin():
-    return FileResponse(os.path.join(STATIC_DIR, "admin.html"))
+    return FileResponse(find_file("admin.html"))
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
-
